@@ -1,0 +1,67 @@
+name: Deploy Frontend to S3
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+  VITE_API_URL: ${{ vars.VITE_API_URL || secrets.VITE_API_URL }}
+
+jobs:
+  deploy-frontend:
+    name: Build and Deploy Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate config
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.S3_BUCKET_NAME }}" ]; then
+            echo "Falta secret S3_BUCKET_NAME"
+            exit 1
+          fi
+          if [ -z "${{ env.VITE_API_URL }}" ]; then
+            echo "Falta VITE_API_URL en vars o secrets"
+            exit 1
+          fi
+
+      - name: Build frontend
+        run: npm run build
+        env:
+          VITE_API_URL: ${{ env.VITE_API_URL }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy to S3
+        run: |
+          aws s3 sync dist/ s3://${{ secrets.S3_BUCKET_NAME }}/ --delete
+          aws s3 website s3://${{ secrets.S3_BUCKET_NAME }}/ --index-document index.html --error-document index.html
+
+      - name: Result
+        run: |
+          if [ -n "${{ vars.FRONTEND_WEBSITE_URL }}" ]; then
+            echo "Frontend desplegado en ${{ vars.FRONTEND_WEBSITE_URL }}"
+          else
+            echo "Frontend desplegado en s3://${{ secrets.S3_BUCKET_NAME }}/"
+          fi
